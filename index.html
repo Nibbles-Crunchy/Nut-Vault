@@ -1,95 +1,79 @@
-// 1. SAFE INITIALIZATION
+// 1. FIXED INITIALIZATION
 const canvas = document.getElementById('game');
+if (canvas) {
+    canvas.width = 1280;
+    canvas.height = 640;
+}
 const ctx = canvas.getContext('2d');
-canvas.width = 1280; 
-canvas.height = 640;
-
 const SIZE = 64;
 let nutStashes = [];
+
+// 2. MOUSE TRACKING (Required for KeyR placement)
 let mousePos = { x: 0, y: 0 };
-
-// 2. INPUT HANDLING FOR BOTH STASH TYPES
-window.addEventListener('keydown', (e) => {
-    if (!user) return;
-    const tx = Math.floor(mousePos.x / SIZE) * SIZE;
-    const ty = Math.floor(mousePos.y / SIZE) * SIZE;
-    const isOnPath = PATH.some(p => p.x * SIZE === tx && p.y * SIZE === ty);
-
-    if (!isOnPath) return;
-
-    // [R] Nut Stash - Standard
-    if (e.code === 'KeyR' && data.bal >= 30) {
-        data.bal -= 30;
-        nutStashes.push({ x: tx, y: ty, hp: 100, maxHp: 100, type: 'nut', icon: "🥜", slow: 0.2 });
-    } 
-    // [T] Honey Stash - Tanky/Super Slow
-    else if (e.code === 'KeyT' && data.bal >= 60) {
-        data.bal -= 60;
-        nutStashes.push({ x: tx, y: ty, hp: 300, maxHp: 300, type: 'honey', icon: "🍯", slow: 0.1 });
-    }
-    updateUI();
+canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mousePos.x = e.clientX - rect.left;
+    mousePos.y = e.clientY - rect.top;
 });
 
-// 3. BOSS REWARD LOGIC
-function rewardBossDefeat(en) {
-    if (!en.isBoss) return;
-    
-    const bonus = 150; // High currency reward
-    data.bal += bonus;
-    
-    // Mega-Slow Reward: All current enemies slowed by 50% for 5 seconds
-    enemies.forEach(enemy => {
-        enemy.speedMultiplier = 0.5;
-        setTimeout(() => enemy.speedMultiplier = 1.0, 5000);
-    });
-    
-    console.log(`Boss Defeated! Gained ${bonus} NB and Mega-Slow active!`);
-    updateUI();
-}
+// 3. UPDATED INPUT LOGIC
+window.addEventListener('keydown', (e) => {
+    if (!user) return;
+    if (e.code === 'KeyR' && data.bal >= 30) {
+        const tx = Math.floor(mousePos.x / SIZE) * SIZE;
+        const ty = Math.floor(mousePos.y / SIZE) * SIZE;
+        
+        // Ensure placement is on the PATH
+        if (PATH.some(p => p.x * SIZE === tx && p.y * SIZE === ty)) {
+            data.bal -= 30;
+            nutStashes.push({ x: tx, y: ty, hp: 100, maxHp: 100 });
+            updateUI();
+        }
+    }
+});
 
-// 4. MAIN GAME LOOP
+// 4. IMPROVED GAME LOOP
 function gameLoop() {
     if (data.hp <= 0) return;
-    ctx.fillStyle = "#2d5a27"; ctx.fillRect(0, 0, 1280, 640);
+    ctx.fillStyle = "#2d5a27"; 
+    ctx.fillRect(0, 0, 1280, 640);
 
-    // Draw Path & Stashes
-    PATH.forEach(p => {
-        ctx.fillStyle = "rgba(212, 163, 115, 0.8)";
-        ctx.fillRect(p.x * SIZE, p.y * SIZE, SIZE, SIZE);
-    });
+    // Draw Path
+    ctx.fillStyle = "rgba(212, 163, 115, 0.8)";
+    PATH.forEach(p => ctx.fillRect(p.x * SIZE, p.y * SIZE, SIZE, SIZE));
 
+    // Draw & Manage Nut Stashes
     nutStashes = nutStashes.filter(ns => ns.hp > 0);
     nutStashes.forEach(ns => {
         ctx.font = "40px Arial";
-        ctx.fillText(ns.icon, ns.x + 10, ns.y + 45);
-        // HP Bar
+        ctx.fillText("🥜", ns.x + 10, ns.y + 45);
+        // Health bar for the stash
         ctx.fillStyle = "red"; ctx.fillRect(ns.x + 8, ns.y + 50, 48, 4);
-        ctx.fillStyle = ns.type === 'honey' ? "#FFD700" : "#00FF00"; 
-        ctx.fillRect(ns.x + 8, ns.y + 50, (ns.hp / ns.maxHp) * 48, 4);
+        ctx.fillStyle = "lime"; ctx.fillRect(ns.x + 8, ns.y + 50, (ns.hp / ns.maxHp) * 48, 4);
     });
 
-    enemies.forEach((en, i) => {
-        let stash = nutStashes.find(n => Math.hypot(n.x+32-(en.x+32), n.y+32-(en.y+32)) < 32);
-        
+    enemies.forEach((en) => {
+        // Collision detection with Stashes
+        let stash = nutStashes.find(n => 
+            Math.hypot(n.x + 32 - (en.x + 32), n.y + 32 - (en.y + 32)) < 32
+        );
+
         if (stash) {
-            stash.hp -= en.isBoss ? 2 : 0.5; // Bosses eat stashes faster
-            en.currentSpeed = en.speed * stash.slow;
+            stash.hp -= 0.5; // Enemy consumes the stash
+            en.speedMultiplier = 0.2; // Significant slow down
         } else {
-            en.currentSpeed = en.speed * (en.speedMultiplier || 1.0);
+            en.speedMultiplier = 1.0; // Normal speed
         }
 
-        // Move and Check Death
-        en.x += en.vx * en.currentSpeed;
-        en.y += en.vy * en.currentSpeed;
+        // Apply movement using the multiplier
+        en.x += en.vx * en.speedMultiplier;
+        en.y += en.vy * en.speedMultiplier;
 
-        if (en.hp <= 0) {
-            rewardBossDefeat(en); // Trigger Boss Reward
-            enemies.splice(i, 1);
-        }
-        
-        // Render Enemy Icon
+        // Render Enemy
+        ctx.fillStyle = "red";
+        ctx.fillRect(en.x, en.y - 16, 64, 12); // Enemy Health Bar
         ctx.font = en.isBoss ? "60px Arial" : "45px Arial";
-        ctx.fillText(en.icon, en.x + 8, en.y + 48);
+        ctx.fillText(en.icon, en.x + 8, en.y + 48 + Math.sin(en.bob) * 8);
     });
 
     requestAnimationFrame(gameLoop);
